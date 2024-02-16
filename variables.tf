@@ -79,10 +79,28 @@ variable "enable_mssql_database" {
 }
 
 variable "mssql_server_admin_password" {
-  description = "The administrator password for the MSSQL server. Must be set if `enable_mssql_database` is true"
+  description = "The local administrator password for the MSSQL server"
   type        = string
   default     = ""
   sensitive   = true
+}
+
+variable "mssql_azuread_admin_username" {
+  description = "Username of a User within Azure AD that you want to assign as the SQL Server Administrator"
+  type        = string
+  default     = ""
+}
+
+variable "mssql_azuread_admin_object_id" {
+  description = "Object ID of a User within Azure AD that you want to assign as the SQL Server Administrator"
+  type        = string
+  default     = ""
+}
+
+variable "mssql_azuread_auth_only" {
+  description = "Set to true to only permit SQL logins from Azure AD users"
+  type        = bool
+  default     = false
 }
 
 variable "mssql_sku_name" {
@@ -107,6 +125,97 @@ variable "mssql_firewall_ipv4_allow_list" {
   description = "A list of IPv4 Addresses that require remote access to the MSSQL Server"
   type        = list(string)
   default     = []
+}
+
+variable "mssql_server_public_access_enabled" {
+  description = "Enable public internet access to your MSSQL instance. Be sure to specify 'mssql_firewall_ipv4_allow_list' to restrict inbound connections"
+  type        = bool
+  default     = false
+}
+
+variable "mssql_version" {
+  description = "Specify the version of Microsoft SQL Server you want to run"
+  type        = string
+  default     = "12.0"
+}
+
+variable "enable_postgresql_database" {
+  type        = bool
+  description = "Set to true to create an Azure Postgres server/database, with a private endpoint within the virtual network"
+  default     = false
+}
+
+variable "postgresql_server_version" {
+  type        = string
+  description = "Specify the version of postgres server to run (either 11,12,13 or 14)"
+  default     = ""
+}
+
+variable "postgresql_administrator_login" {
+  type        = string
+  description = "Specify a login that will be assigned to the administrator when creating the Postgres server"
+  default     = ""
+}
+
+variable "postgresql_administrator_password" {
+  type        = string
+  description = "Specify a password that will be assigned to the administrator when creating the Postgres server"
+  default     = ""
+}
+
+variable "postgresql_availability_zone" {
+  type        = string
+  description = "Specify the availibility zone in which the Postgres server should be located"
+  default     = "1"
+}
+
+variable "postgresql_max_storage_mb" {
+  type        = number
+  description = "Specify the max amount of storage allowed for the Postgres server"
+  default     = 32768
+}
+
+variable "postgresql_sku_name" {
+  type        = string
+  description = "Specify the SKU to be used for the Postgres server"
+  default     = "B_Standard_B1ms"
+}
+
+variable "postgresql_collation" {
+  type        = string
+  description = "Specify the collation to be used for the Postgres database"
+  default     = "en_US.utf8"
+}
+
+variable "postgresql_charset" {
+  type        = string
+  description = "Specify the charset to be used for the Postgres database"
+  default     = "utf8"
+}
+
+variable "postgresql_enabled_extensions" {
+  type        = string
+  description = "Specify a comma seperated list of Postgres extensions to enable. See https://learn.microsoft.com/en-us/azure/postgresql/flexible-server/concepts-extensions#postgres-14-extensions"
+  default     = ""
+}
+
+variable "postgresql_network_connectivity_method" {
+  type        = string
+  description = "Specify postgresql networking method, public or private. See https://learn.microsoft.com/en-gb/azure/postgresql/flexible-server/concepts-networking"
+  default     = "private"
+  validation {
+    condition     = contains(["public", "private"], var.postgresql_network_connectivity_method)
+    error_message = "Valid values for postgresql_network_connectivity_method are public or private."
+  }
+}
+
+variable "postgresql_firewall_ipv4_allow" {
+  type = map(object({
+    start_ip_address = string
+    end_ip_address   = string
+  }))
+  description = "Map of IP address ranges to add into the postgres firewall. Note: only applicable if postgresql_network_connectivity_method is set to public."
+  default     = {}
 }
 
 variable "enable_redis_cache" {
@@ -441,6 +550,24 @@ variable "enable_cdn_frontdoor" {
   default     = false
 }
 
+variable "cdn_frontdoor_enable_waf_logs" {
+  description = "Toggle the Diagnostic Setting to log Web Application Firewall requests"
+  type        = bool
+  default     = true
+}
+
+variable "cdn_frontdoor_enable_access_logs" {
+  description = "Toggle the Diagnostic Setting to log Access requests"
+  type        = bool
+  default     = false
+}
+
+variable "cdn_frontdoor_enable_health_probe_logs" {
+  description = "Toggle the Diagnostic Setting to log Health Probe requests"
+  type        = bool
+  default     = false
+}
+
 variable "restrict_container_apps_to_cdn_inbound_only" {
   description = "Restricts access to the Container Apps by creating a network security group that only allows 'AzureFrontDoor.Backend' inbound, and attaches it to the subnet of the container app environment."
   type        = bool
@@ -556,6 +683,18 @@ variable "cdn_frontdoor_origin_host_header_override" {
   nullable    = true
 }
 
+variable "cdn_frontdoor_origin_http_port" {
+  description = "The value of the HTTP port used for the CDN Origin. Must be between 1 and 65535. Defaults to 80"
+  type        = number
+  default     = 80
+}
+
+variable "cdn_frontdoor_origin_https_port" {
+  description = "The value of the HTTPS port used for the CDN Origin. Must be between 1 and 65535. Defaults to 443"
+  type        = number
+  default     = 443
+}
+
 variable "enable_event_hub" {
   description = "Send Azure Container App logs to an Event Hub sink"
   type        = bool
@@ -566,6 +705,12 @@ variable "enable_logstash_consumer" {
   description = "Create an Event Hub consumer group for Logstash"
   type        = bool
   default     = false
+}
+
+variable "eventhub_export_log_analytics_table_names" {
+  description = "List of Log Analytics table names that you want to export to Event Hub. See https://learn.microsoft.com/en-gb/azure/azure-monitor/logs/logs-data-export?tabs=portal#supported-tables for a list of supported tables"
+  type        = list(string)
+  default     = []
 }
 
 variable "enable_monitoring" {
@@ -580,20 +725,32 @@ variable "monitor_email_receivers" {
   default     = []
 }
 
+variable "existing_logic_app_workflow" {
+  description = "Name, Resource Group and HTTP Trigger URL of an existing Logic App Workflow. Leave empty to create a new Resource"
+  type = object({
+    name : string
+    resource_group_name : string
+  })
+  default = {
+    name                = ""
+    resource_group_name = ""
+  }
+}
+
 variable "monitor_enable_slack_webhook" {
-  description = "Enable slack webhooks to send monitoring notifications to a channel"
+  description = "Enable slack webhooks to send monitoring notifications to a channel. Has no effect if you have defined `existing_logic_app_workflow`"
   type        = bool
   default     = false
 }
 
 variable "monitor_slack_webhook_receiver" {
-  description = "A Slack App webhook URL"
+  description = "A Slack App webhook URL. Has no effect if you have defined `existing_logic_app_workflow`"
   type        = string
   default     = ""
 }
 
 variable "monitor_slack_channel" {
-  description = "Slack channel name/id to send messages to"
+  description = "Slack channel name/id to send messages to. Has no effect if you have defined `existing_logic_app_workflow`"
   type        = string
   default     = ""
 }
@@ -602,6 +759,24 @@ variable "monitor_endpoint_healthcheck" {
   description = "Specify a route that should be monitored for a 200 OK status"
   type        = string
   default     = "/"
+}
+
+variable "monitor_tls_expiry" {
+  description = "Enable or disable daily TLS expiry check"
+  type        = bool
+  default     = true
+}
+
+variable "alarm_tls_expiry_days_remaining" {
+  description = "Number of days remaining of TLS validity before an alarm should be raised"
+  type        = number
+  default     = 30
+}
+
+variable "alarm_log_ingestion_gb_per_day" {
+  description = "Define an alarm threshold for Log Analytics ingestion rate in GB (per day) (Defaults to no limit)"
+  type        = number
+  default     = 0
 }
 
 variable "alarm_cpu_threshold_percentage" {
@@ -674,4 +849,30 @@ variable "container_app_blob_storage_ipv4_allow_list" {
   description = "A list of public IPv4 address to grant access to the Blob Storage Account"
   type        = list(string)
   default     = []
+}
+
+variable "custom_container_apps" {
+  description = "Custom container apps, by default deployed within the container app environment"
+  type = map(object({
+    response_export_values = optional(list(string), [])
+    body = object({
+      properties = object({
+        managedEnvironmentId = optional(string, "")
+        configuration = object({
+          activeRevisionsMode = optional(string, "single")
+          secrets             = optional(list(map(string)), [])
+          ingress             = optional(any, {})
+          registries          = optional(list(map(any)), [])
+          dapr                = optional(map(string), {})
+        })
+        template = object({
+          revisionSuffix = string
+          containers     = list(any)
+          scale          = map(any)
+          volumes        = list(map(string))
+        })
+      })
+    })
+  }))
+  default = {}
 }

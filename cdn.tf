@@ -36,8 +36,8 @@ resource "azurerm_cdn_frontdoor_origin" "origin" {
   certificate_name_check_enabled = true
   host_name                      = local.cdn_frontdoor_origin_fqdn_override
   origin_host_header             = local.cdn_frontdoor_origin_host_header_override
-  http_port                      = 80
-  https_port                     = 443
+  http_port                      = local.cdn_frontdoor_origin_http_port
+  https_port                     = local.cdn_frontdoor_origin_https_port
 }
 
 resource "azurerm_cdn_frontdoor_endpoint" "endpoint" {
@@ -215,7 +215,7 @@ resource "azurerm_cdn_frontdoor_rule" "add_response_headers" {
 
   name                      = replace("addresponseheaders${each.key}", "-", "")
   cdn_frontdoor_rule_set_id = azurerm_cdn_frontdoor_rule_set.add_response_headers[0].id
-  order                     = 0
+  order                     = each.key
   behavior_on_match         = "Continue"
 
   actions {
@@ -241,7 +241,7 @@ resource "azurerm_cdn_frontdoor_rule" "remove_response_header" {
 
   name                      = replace("removeresponseheader${each.value}", "-", "")
   cdn_frontdoor_rule_set_id = azurerm_cdn_frontdoor_rule_set.remove_response_headers[0].id
-  order                     = 0
+  order                     = index(local.cdn_frontdoor_remove_response_headers, each.value)
   behavior_on_match         = "Continue"
 
   actions {
@@ -252,19 +252,47 @@ resource "azurerm_cdn_frontdoor_rule" "remove_response_header" {
   }
 }
 
-resource "azurerm_monitor_diagnostic_setting" "waf" {
-  count = local.cdn_frontdoor_enable_waf ? 1 : 0
+resource "azurerm_monitor_diagnostic_setting" "cdn" {
+  count = local.enable_cdn_frontdoor ? 1 : 0
 
-  name                           = "${local.resource_prefix}waf"
+  name                           = "${local.resource_prefix}cdn"
   target_resource_id             = azurerm_cdn_frontdoor_profile.cdn[0].id
   log_analytics_workspace_id     = azurerm_log_analytics_workspace.container_app.id
   log_analytics_destination_type = "AzureDiagnostics"
 
-  enabled_log {
-    category = "FrontdoorWebApplicationFirewallLog"
+  dynamic "enabled_log" {
+    for_each = local.cdn_frontdoor_enable_waf_logs ? [1] : []
 
-    retention_policy {
-      enabled = false
+    content {
+      category = "FrontdoorWebApplicationFirewallLog"
+
+      retention_policy {
+        enabled = false
+      }
+    }
+  }
+
+  dynamic "enabled_log" {
+    for_each = local.cdn_frontdoor_enable_access_logs ? [1] : []
+
+    content {
+      category = "FrontdoorAccessLog"
+
+      retention_policy {
+        enabled = false
+      }
+    }
+  }
+
+  dynamic "enabled_log" {
+    for_each = local.cdn_frontdoor_enable_health_probe_logs ? [1] : []
+
+    content {
+      category = "FrontdoorHealthProbeLog"
+
+      retention_policy {
+        enabled = false
+      }
     }
   }
 
